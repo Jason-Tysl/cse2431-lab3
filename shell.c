@@ -21,10 +21,18 @@ int promptUntilCommandReceived() {
     i, j;        /* iteration through the command list commands */
     int validCommandFound = 0;
     
-    while (!validCommandFound) {
+    while (validCommandFound == 0) {
         printf("Your command?\n");
         fflush(0);
         length = read(STDIN_FILENO, inputBuffer, BUFFER_SIZE);
+        if (length == 0)
+        exit(0);            /* ^d was entered, end of user command stream */
+        if (length < 0) {
+            perror("error reading the command");
+	        exit(-1);           /* terminate with error code of -1 */
+        }
+        inputBuffer[length-1] = '\0';
+        length = strlen(inputBuffer);
         if (length < 1) {
             printf("Sorry, that's not a valid command. Please try again.\n");
             fflush(0);
@@ -36,7 +44,9 @@ int promptUntilCommandReceived() {
                     char cmdLetter = inputBuffer[2];
                     j = 0;
                     i = mostRecentCommandIndex;
-                    while (j < MAX_COMMANDS && !validCommandFound) {
+
+                    /* loop through the commands and check if a command matches the letter inputted */
+                    while (j < MAX_COMMANDS && validCommandFound == 0) {
                         if (i < 0) {
                             i += MAX_COMMANDS;
                         }
@@ -47,11 +57,11 @@ int promptUntilCommandReceived() {
                         i--;
                         j++;
                     }
-                    if (!validCommandFound) {
-                        printf("Sorry, that's not a valid command. Please try again.\n");
-                        fflush(0);
-                    }
                 }
+            }
+            if (validCommandFound == 0) {
+                printf("Sorry, that's not a valid command. Please try again.\n");
+                fflush(0);
             }
         }
     }
@@ -59,40 +69,56 @@ int promptUntilCommandReceived() {
 
 /* Prints the possible commands (the most recent MAX_COMMANDS commands) */
 void printCommands() {
-    int i;
-    printf("Most recent %d commands:\n", max(MAX_COMMANDS, countCommands));
+    int i, j;
+    printf("Most recent %d commands:\n", MAX_COMMANDS);
     fflush(0);
-    i = 0;
-    while (i < MAX_COMMANDS && i < countCommands) {
+    i = mostRecentCommandIndex;
+    while (j < MAX_COMMANDS && j < countCommands) {
+        if (i < 0) {
+            i += MAX_COMMANDS;
+        }
+        printf("Command %d: ", countCommands - j);
+        fflush(0);
         write(STDOUT_FILENO, commands[i], strlen(commands[i]));
-        i++;
+        i--;
+        j++;
     }
 }
 
+void sigSetup(char inputBuffer[], char *args[], int *background);
+
 /* processes the command given within the signal handler */
 void processCommand(int cmdInd) {
+    int background = 0;              /* equals 1 if a command is followed by '&' */
+    char *args[BUFFER_SIZE/2+1]; /* command line (of 80) has max of 40 arguments */
+    strcpy(inputBuffer, commands[cmdInd]);
+    sigSetup(inputBuffer, args, &background);
     int pid = fork();
-        int *returnCode;
-        /* maybe need to add more from setup? */
-        if (pid == 0) {
-            execvp(commands[cmdInd], args);
-            printf("Command not recognized.\n");
-            fflush(0);
-            exit(-1);
-        } else if (pid < 0) {
-            printf("Fork! It Failed.\n");
-            fflush(0);
-        } else {
-            if (background == 0) {
-                waitpid(pid, returnCode, 0);
-            }
+    int *returnCode;
+    /* maybe need to add more from setup? */
+    if (pid == 0) {
+        printf("Running: %s...\n", inputBuffer);
+        fflush(0);
+        execvp(inputBuffer, args);
+        printf("Command not recognized.\n");
+        fflush(0);
+        exit(-1);
+    } else if (pid < 0) {
+        printf("Fork! It Failed.\n");
+        fflush(0);
+    } else {
+        if (background == 0) {
+            waitpid(pid, returnCode, 0);
         }
+    }
+    printf("COMMAND->");
+    fflush(0);
 }
 
 /* the signal handler function */
 void handle_SIGINT() {
     int i = 0;
-    printf("\nCaught <ctrl><c>.\n"));
+    printf("\nCaught <ctrl><c>.\n");
     fflush(0);
     printCommands();
     int cmd = promptUntilCommandReceived();
@@ -110,20 +136,81 @@ void addCommandToArray() {
 }
 
 /**
- * setup() reads in the next command line, separating it into distinct tokens
+ * sigSetup() reads in the next command line, separating it into distinct tokens
  * using whitespace as delimiters. setup() sets the args parameter as a 
  * null-terminated string.
  */
-void setup(char inputBuffer[], char *args[],int *background)
+void sigSetup(char inputBuffer[], char *args[], int *background)
 {
     int length, /* # of characters in the command line */
         i,      /* loop index for accessing inputBuffer array */
         start,  /* index where beginning of next command parameter is */
         ct;     /* index of where to place the next parameter into args[] */
-        ct = 0;
+    ct = 0;
+
+    length = strlen(inputBuffer);
+
+    start = -1;
+    if (length == 0)
+        exit(0);            /* ^d was entered, end of user command stream */
+    if (length < 0) {
+        perror("error reading the command");
+	    exit(-1);           /* terminate with error code of -1 */
+    }
+    inputBuffer[length] = '\0';
+
+    /* examine every character in the inputBuffer */
+    for (i = 0; i < length; i++) { 
+        switch (inputBuffer[i]){
+            case ' ':
+            case '\t' :               /* argument separators */
+                if(start != -1){
+                    args[ct] = &inputBuffer[start];    /* set up pointer */
+                    ct++;
+                }
+                inputBuffer[i] = '\0'; /* add a null char; make a C string */
+                start = -1;
+                break;
+                
+            case '\n':                 /* should be the final char examined */
+                if (start != -1){
+                    args[ct] = &inputBuffer[start];     
+                    ct++;
+                }
+                inputBuffer[i] = '\0';
+                args[ct] = NULL; /* no more arguments to this command */
+                break;
+
+            case '&':
+                *background = 1;
+                inputBuffer[i] = '\0';
+                break;
+                
+            default :             /* some other character */
+                if (start == -1)
+                    start = i;
+	    }
+    }
+    args[ct] = NULL; /* just in case the input line was > 80 */
+} 
+
+/**
+ * setup() reads in the next command line, separating it into distinct tokens
+ * using whitespace as delimiters. setup() sets the args parameter as a 
+ * null-terminated string.
+ */
+void setup(char inputBuffer[], char *args[], int *background)
+{
+    int length, /* # of characters in the command line */
+        i,      /* loop index for accessing inputBuffer array */
+        start,  /* index where beginning of next command parameter is */
+        ct;     /* index of where to place the next parameter into args[] */
+    ct = 0;
     
     /* read what the user enters on the command line */
     length = read(STDIN_FILENO, inputBuffer, BUFFER_SIZE);
+    printf("\n%s\n", inputBuffer);
+    fflush(0);
 
     start = -1;
     if (length == 0)
