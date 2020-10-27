@@ -73,6 +73,7 @@ void printCommands() {
 void processCommand(int cmdInd) {
     int pid = fork();
         int *returnCode;
+        /* maybe need to add more from setup? */
         if (pid == 0) {
             execvp(commands[cmdInd], args);
             printf("Command not recognized.\n");
