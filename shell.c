@@ -23,9 +23,11 @@ int promptUntilCommandReceived() {
     
     while (!validCommandFound) {
         printf("Your command?\n");
+        fflush(0);
         length = read(STDIN_FILENO, inputBuffer, BUFFER_SIZE);
         if (length < 1) {
             printf("Sorry, that's not a valid command. Please try again.\n");
+            fflush(0);
         } else {            /* length >= 1 */
             if (inputBuffer[0] == 'r') {
                 if (length <= 1) {
@@ -47,6 +49,7 @@ int promptUntilCommandReceived() {
                     }
                     if (!validCommandFound) {
                         printf("Sorry, that's not a valid command. Please try again.\n");
+                        fflush(0);
                     }
                 }
             }
@@ -58,6 +61,7 @@ int promptUntilCommandReceived() {
 void printCommands() {
     int i;
     printf("Most recent %d commands:\n", max(MAX_COMMANDS, countCommands));
+    fflush(0);
     i = 0;
     while (i < MAX_COMMANDS && i < countCommands) {
         write(STDOUT_FILENO, commands[i], strlen(commands[i]));
@@ -71,9 +75,11 @@ void processCommand(int cmdInd) {
         if (pid == 0) {
             execvp(commands[cmdInd], args);
             printf("Command not recognized.\n");
+            fflush(0);
             exit(-1);
         } else if (pid < 0) {
             printf("Fork! It Failed.\n");
+            fflush(0);
         } else {
             if (background == 0) {
                 waitpid(pid, returnCode, 0);
@@ -84,9 +90,8 @@ void processCommand(int cmdInd) {
 /* the signal handler function */
 void handle_SIGINT() {
     int i = 0;
-    char str[BUFFER_SIZE];
-    strcpy(str, "\nCaught <ctrl><c>.\n");
-    write(STDOUT_FILENO, str, strlen(str));
+    printf("\nCaught <ctrl><c>.\n"));
+    fflush(0);
     printCommands();
     int cmd = promptUntilCommandReceived();
     processCommand(cmd);
