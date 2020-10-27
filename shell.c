@@ -69,6 +69,7 @@ void printCommands() {
     }
 }
 
+/* processes the command given within the signal handler */
 void processCommand(int cmdInd) {
     int pid = fork();
         int *returnCode;
@@ -97,6 +98,7 @@ void handle_SIGINT() {
     processCommand(cmd);
 }
 
+/* adds the command in inputBuffer to the next spot in the commands array */
 void addCommandToArray() {
     countCommands++;
     mostRecentCommandIndex++;
